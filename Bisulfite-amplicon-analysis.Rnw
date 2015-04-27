@@ -1,0 +1,140 @@
+%\VignetteEngine{knitr::knitr}
+%\VignetteIndexEntry{Analysis of bisulfite amplicon MiSeq data using the aaRon package}
+%\VignettePackage{aaRon}
+
+\documentclass{article}
+<<style-knitr, eval=TRUE, echo=FALSE, results="asis">>=
+BiocStyle::latex()
+@
+
+\begin{document}
+
+<<setup, include=FALSE, cache=TRUE>>=
+library(knitr)
+opts_chunk$set(out.width="0.8\\maxwidth",fig.align="center")
+@
+
+\title{Analysis of bisulfite amplicon MiSeq data using the aaRon package}
+\author{Aaron Statham \email{a.statham@garvan.org.au}}
+
+\maketitle
+
+\tableofcontents
+
+\section{Introduction}
+
+\section{Alignment of raw data}
+
+\section{Analysis of aligned data}
+
+The package \Githubpkg{astatham/aaRon} may be downloaded directy from github using \texttt{devtools} if it needs to be installed or updated.
+
+<<install, eval=FALSE>>=
+library(devtools)
+install_github("astatham/aaRon")
+@
+
+
+Firstly we load the \R{} package \Githubpkg{astatham/aaRon}, and the \Biocpkg{BSgenome} package of the organism our amplicon data was aligned to; in this case \Biocannopkg{BSgenome.Hsapiens.UCSC.hg19}.
+
+<<packages, message=FALSE, warning=FALSE, cache=TRUE>>=
+library(aaRon)
+library(BSgenome.Hsapiens.UCSC.hg19)
+@
+
+\subsection{Loading the amplicon targets, and analysing the aligned reads against these targets}
+
+<<load_amplicons, cache=TRUE>>=
+# load the amplicon info and display its format
+amplicons <- read.csv("amplicons.csv")
+str(amplicons)
+# align the amplicons target sequence against hg19 and annotate it
+amplicons <- ampliconGRanges(amplicons, Hsapiens, mc.cores=8)
+amplicons
+@
+
+
+<<find_reads, cache=TRUE>>=
+# Find BAM files which have been name sorted then overlapping read pairs clipped
+bams <- dir("aligned_reads", pattern=".name.clip.bam", full.names=TRUE, recursive=TRUE)
+names(bams) <- gsub(".*/", "", sub(".name.clip.bam", "", bams))
+bams
+@
+
+The \Rfunction{ampliconAnalysis} is the real workhorse - it loads each supplied BAM file, filters reads on various flags and quality scores, creates a pileup of sequenced bases at each position of each amplicon and then creates methylation summaries.
+
+<<ampliconAnalysis, cache=TRUE>>=
+results <- ampliconAnalysis(amplicons, bams, Hsapiens, paired=TRUE, mc.cores=8)
+@
+
+That's it!
+
+\subsection{Exploring the analysed amplicon data}
+
+The \Robject{results} object returned by \Rfunction{ampliconAnalysis} is a \Rclass{list} with the following elements:
+
+\begin{itemize}
+  \item \Robject{amplicons} - a copy of the \Robject{amplicons} object passed to \Rfunction{ampliconAnalysis}.
+  \item \Robject{summary} - Some summary statistics of the experiment, per amplicon.
+  \item \Robject{CpGs} - Per CpG site methylation calls and counts of coverage.
+  \item \Robject{Cs} - Per cytosine methylation calls and counts of coverage - useful for nonCpG methylation, or for estimating bisulfite non-conversion.
+  \item \Robject{all\_bases} - Counts and ratios of A/C/G/Ts seqenced per base of each amplicon.
+\end{itemize}
+
+\emph{Figure 1} shows some per-amplicon summaries of the experiment created from the \Robject{results\$summary} object as follows.
+
+<<amplicon_plots, fig.show='hold', fig.width=5, fig.height=3.3, out.width=".49\\linewidth", cache=TRUE, fig.cap="Per-amplicon summaries of sequencing coverage, bisulfite conversion and CpG methylation">>=
+library(reshape2)
+library(ggplot2)
+for (toplot in c("Reads", "Conversion", "Methylation")) {
+	# Extract the metric of interest
+	tmp <- results$summary[, paste0(amplicons$Amplicon, "_", toplot)]
+	# Fix up the columns names
+	names(tmp) <- sub(paste0("_", toplot), "", names(tmp))
+	# melt() for ggplotting, again fix up the column names
+	tmp <- melt(t(tmp))
+	names(tmp) <- c("Amplicon", "Sample", toplot)
+	# Plot
+	p <- ggplot(tmp, aes_string(x="Amplicon", y=toplot, fill="Sample", group="Sample")) + geom_bar(stat="identity", position="dodge")
+	p <- p + theme(axis.text.x=element_text(angle=90), axis.title.x = element_blank())
+	print(p)
+}
+@
+
+The methylation of the \emph{FERD3L} amplicon looks variable across the four samples, so lets "zoom in" and plot the methylation of each individual CpG site using the \Robject{results\$CpGs} object.
+
+<<FERD3L, fig.width=10, fig.pos="H", cache=TRUE, fig.cap="Methylation ratio for the four samples across the FERD3L locus">>=
+# Extract the FERD3L 
+tmp <- as.data.frame(results$CpGs[results$CpGs$amplicons=="FERD3L"])
+tmp
+# just want the "start" position and the "C" ratio for each sample
+tmp <- tmp[,c(2, 8:11)]
+names(tmp) <- c("Position", sub("C.", "", names(tmp)[-1]))
+# Melt 
+tmp <- melt(tmp, id.vars="Position", value.name="Methylation")
+# plot
+p <- ggplot(tmp, aes(x=Position, y=Methylation, color=variable)) + geom_point() + geom_line()
+p <- p + ylim(0, 1) + ggtitle("Methylation @ FERD3L") + xlab("CpG site position")
+print(p)
+@
+
+\subsection{Exporting an experiment "bigTable"}
+
+<<export, cache=TRUE>>=
+# output summary
+write.csv(results$summary, "summary.csv")
+# output "bigTable" of all CpG sites
+tmp <- as.data.frame(results$CpGs)[,-c(3:5)]
+names(tmp)[1:4] <- c("chr", "position", "amplicon", "base")
+write.table(tmp, "CpG_bigTable.csv", sep=",", row.names=FALSE)
+@
+
+\section{Conclusions}
+
+
+\section{Session info}
+<<sessionInfo, eval=TRUE, cache=FALSE>>=
+sessionInfo()
+@
+
+\end{document}
