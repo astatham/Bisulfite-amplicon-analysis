@@ -44,15 +44,31 @@ library(BSgenome.Hsapiens.UCSC.hg19)
 
 \subsection{Loading the amplicon targets, and analysing the aligned reads against these targets}
 
+Information describing the amplicons to be analysed in the experiment can be loaded from a file (see the included \file{amplicons.csv} with 16 real amplicons as a template) into a \Rclass{data.frame} with the following required columns:
+
+\begin{itemize}
+  \item \Robject{Amplicon} - Name of the amplicon
+  \item \Robject{Target} - Genomic (i.e. non-bisulfite converted) sequence targetted to be amplified from the correct strand, including the primer hybridisation sequences.
+  \item \Robject{FW} - Forward bisulfite primer sequence.
+  \item \Robject{RV} - Reverse bisulfite primer sequence.
+  \item \Robject{Sequenom} - \Rclass{logical} of whether the amplicon used Sequenom primers, which need to have the T7 transcription 3\textsc{\char13} tags clipped.
+\end{itemize}
+
 <<load_amplicons, cache=TRUE>>=
 # load the amplicon info and display its format
-amplicons <- read.csv("amplicons.csv")
+amplicons <- read.csv("amplicons.csv", stringsAsFactors=FALSE)
 str(amplicons)
+@
+
+The \Rfunction{ampliconGRanges} takes this \Rclass{data.frame} and the \Biocpkg{BSgenome} of the genome to map the amplicons to (in this case \Biocannopkg{BSgenome.Hsapiens.UCSC.hg19}). It then uses \Rfunction{vmatchPattern} to look for exact matches of \Robject{amplicons\$Target} to the genome and annotates it with the genomic co-ordinates of each CpG site within the amplicon.
+
+<<ampliconGRanges, cache=TRUE>>=
 # align the amplicons target sequence against hg19 and annotate it
 amplicons <- ampliconGRanges(amplicons, Hsapiens, mc.cores=8)
 amplicons
 @
 
+For the actual analysis we now need a \Rclass{character} vector of paths to the name sorted, clipped BAM files of interest. The names of this vector will be the sample names.
 
 <<find_reads, cache=TRUE>>=
 # Find BAM files which have been name sorted then overlapping read pairs clipped
